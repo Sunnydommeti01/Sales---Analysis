@@ -2783,16 +2783,35 @@ st.markdown(
 # ============================================================
 # STREAMLIT LOGIN
 # ============================================================
+# Same automatic-login pattern as the proven reference dashboard.
+# Streamlit Secrets:
+#
+#   RENGY_IDENTIFIER = "your_login_identifier"
+#   RENGY_PASSWORD   = "your_login_password"
+#
+# No credential input boxes are rendered in the dashboard.
+# ============================================================
 
-def get_secret(name):
+def _secret(name, default=""):
     try:
-        return str(st.secrets.get(name, "")).strip()
+        return str(st.secrets.get(name, default)).strip()
     except Exception:
-        return ""
+        return default
 
 
-secret_identifier = get_secret("RENGY_IDENTIFIER")
-secret_password = get_secret("RENGY_PASSWORD")
+RENGY_IDENTIFIER = _secret("RENGY_IDENTIFIER")
+RENGY_PASSWORD = _secret("RENGY_PASSWORD")
+
+RENGY_LOGIN_URL = "https://apiportal.rengy.in/api/auth/login"
+RENGY_USER_TYPE = "rengyStaff"
+
+if not RENGY_IDENTIFIER or not RENGY_PASSWORD:
+    st.error(
+        "Missing Rengy login credentials in Streamlit Secrets. "
+        "Add RENGY_IDENTIFIER and RENGY_PASSWORD."
+    )
+    st.stop()
+
 
 with st.sidebar:
     st.markdown(
@@ -2806,23 +2825,110 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-# Production dashboard: credentials come ONLY from Streamlit Secrets.
-# Never render email/password input boxes in the application.
-if not secret_identifier or not secret_password:
-    st.error(
-        "CRM connection is not configured. Open Streamlit Cloud → "
-        "App Settings → Secrets and add the RENGY_IDENTIFIER and "
-        "RENGY_PASSWORD entries used by your Rengy login."
-    )
-    st.code(
-        'RENGY_IDENTIFIER = "your_rengy_login_email"\n'
-        'RENGY_PASSWORD = "your_rengy_login_password"',
-        language="toml",
-    )
-    st.stop()
 
-app_identifier = secret_identifier
-app_password = secret_password
+_AUTH_LOCK = threading.RLock()
+_AUTH_STATE = {
+    "access_token": "",
+    "refresh_token": "",
+}
+
+
+def _normalize_token(value):
+    token = str(value or "").strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    return token
+
+
+def rengy_login(force=False):
+    """
+    Authenticate with the confirmed Rengy login API and keep the returned
+    access/refresh tokens only in app memory.
+
+    The password is read only from Streamlit Secrets.
+    Tokens are never written to GitHub or a local file.
+    """
+    with _AUTH_LOCK:
+        if _AUTH_STATE["access_token"] and not force:
+            return _AUTH_STATE["access_token"]
+
+        response = requests.post(
+            RENGY_LOGIN_URL,
+            json={
+                "identifier": RENGY_IDENTIFIER,
+                "password": RENGY_PASSWORD,
+                "userType": RENGY_USER_TYPE,
+            },
+            headers={
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/json",
+                "Origin": "https://portal.rengy.in",
+                "Referer": "https://portal.rengy.in/",
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
+
+        try:
+            payload = response.json()
+        except Exception:
+            payload = {}
+
+        if not response.ok:
+            message = ""
+            if isinstance(payload, dict):
+                message = str(
+                    payload.get("message")
+                    or payload.get("error")
+                    or payload.get("detail")
+                    or ""
+                )[:300]
+
+            raise PermissionError(
+                "Rengy automatic login failed. "
+                f"HTTP {response.status_code}"
+                + (f" — {message}" if message else "")
+            )
+
+        data = payload.get("data", {}) if isinstance(payload, dict) else {}
+        if not isinstance(data, dict):
+            data = {}
+
+        access_token = _normalize_token(data.get("accessToken"))
+        refresh_token = _normalize_token(data.get("refreshToken"))
+
+        if not access_token:
+            raise PermissionError(
+                "Rengy login returned HTTP 200 but data.accessToken was missing."
+            )
+
+        _AUTH_STATE["access_token"] = access_token
+        _AUTH_STATE["refresh_token"] = refresh_token
+        return access_token
+
+
+def current_auth_headers(force_login=False):
+    token = rengy_login(force=force_login)
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json, text/plain, */*",
+        "Origin": "https://portal.rengy.in",
+        "Referer": "https://portal.rengy.in/",
+    }
+
+    refresh_token = _AUTH_STATE.get("refresh_token", "")
+    if refresh_token:
+        headers["x-refresh-token"] = refresh_token
+
+    return headers
+
+
+# Compatibility headers. api_get() rebuilds auth headers per request.
+HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Origin": "https://portal.rengy.in",
+    "Referer": "https://portal.rengy.in/",
+}
 
 
 # ============================================================
