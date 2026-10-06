@@ -22,6 +22,7 @@
 # C:\Users\venka\OneDrive\Desktop\CP_Vendor_Lead_Master.xlsx
 # ============================================================
 
+import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -2792,23 +2793,31 @@ st.markdown(
 # No credential input boxes are rendered in the dashboard.
 # ============================================================
 
-def _secret(name, default=""):
+def _runtime_secret(name, default=""):
+    """Read deployment credentials without rendering login fields."""
     try:
-        return str(st.secrets.get(name, default)).strip()
+        value = st.secrets.get(name, "")
+        if value is not None and str(value).strip():
+            return str(value).strip()
     except Exception:
-        return default
+        pass
+
+    # Optional local/server fallback.
+    value = os.getenv(name, default)
+    return str(value or "").strip()
 
 
-RENGY_IDENTIFIER = _secret("RENGY_IDENTIFIER")
-RENGY_PASSWORD = _secret("RENGY_PASSWORD")
+RENGY_IDENTIFIER = _runtime_secret("RENGY_IDENTIFIER")
+RENGY_PASSWORD = _runtime_secret("RENGY_PASSWORD")
 
 RENGY_LOGIN_URL = "https://apiportal.rengy.in/api/auth/login"
 RENGY_USER_TYPE = "rengyStaff"
 
 if not RENGY_IDENTIFIER or not RENGY_PASSWORD:
-    st.error(
-        "Missing Rengy login credentials in Streamlit Secrets. "
-        "Add RENGY_IDENTIFIER and RENGY_PASSWORD."
+    st.error("CRM configuration is unavailable for this deployment.")
+    st.caption(
+        "Configure RENGY_IDENTIFIER and RENGY_PASSWORD once in the app's "
+        "Streamlit Secrets, then reboot the app."
     )
     st.stop()
 
@@ -3406,9 +3415,9 @@ st.markdown(
     :root {
         --rengy-navy:#0b2538;
         --rengy-blue:#2f6fed;
-        --rengy-cyan:#39b9d6;
+        --rengy-amber:#B45309;
         --rengy-teal:#0F766E;
-        --rengy-mint:#69d5b6;
+        --rengy-emerald:#0F766E;
         --rengy-ink:#0F172A;
         --rengy-muted:#7b91a2;
         --rengy-line:rgba(23,56,79,.08);
@@ -4041,8 +4050,8 @@ with c4:
             f"{vendor_leads:,}",
             "Converted",
             f"{vendor_project_count:,}",
-            "#ec4899",
-            "#fce7f3",
+            "#D97706",
+            "#FFF7E6",
             f"{vendor_conversion_rate:.1f}% CVR",
         ),
         unsafe_allow_html=True,
@@ -4058,8 +4067,8 @@ with c5:
             f"{cp_leads:,}",
             "Converted",
             f"{cp_project_count:,}",
-            "#06b6d4",
-            "#cffafe",
+            "#0F766E",
+            "#ECFDF5",
             f"{cp_conversion_rate:.1f}% CVR",
         ),
         unsafe_allow_html=True,
