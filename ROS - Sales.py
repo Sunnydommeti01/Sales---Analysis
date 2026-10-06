@@ -3015,8 +3015,8 @@ with st.spinner("Syncing live CRM data..."):
             df_cp_master,
             df_vendor_master,
         ) = load_dashboard_data(
-            app_identifier,
-            app_password,
+            RENGY_IDENTIFIER,
+            RENGY_PASSWORD,
         )
     except Exception as exc:
         st.error(
