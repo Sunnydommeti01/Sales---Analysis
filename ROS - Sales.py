@@ -4976,8 +4976,8 @@ else:
     fig = go.Figure()
 
     for ptype, color in [
-        ("CP", "#0F766E"),
-        ("Vendor", "#D97706"),
+        ("CP", "#A7DCCF"),
+        ("Vendor", "#F3D6A2"),
     ]:
         part = onboarding_summary.loc[
             onboarding_summary["Type"] == ptype
@@ -7115,7 +7115,7 @@ with st.container(key="consultant_vibe_board"):
                 width=.24,
                 offset=-.13,
                 marker=dict(
-                    color="#CBD5E1",
+                    color="#DCE6F0",
                     line=dict(
                         color="rgba(255,255,255,.96)",
                         width=1,
@@ -7154,7 +7154,7 @@ with st.container(key="consultant_vibe_board"):
                 width=.24,
                 offset=.13,
                 marker=dict(
-                    color="#0F766E",
+                    color="#A7DCCF",
                     line=dict(
                         color="rgba(255,255,255,.96)",
                         width=1,
@@ -7166,7 +7166,7 @@ with st.container(key="consultant_vibe_board"):
                 textposition="outside",
                 textfont=dict(
                     size=10,
-                    color="#0B5F58",
+                    color="#356B61",
                 ),
                 cliponaxis=False,
                 customdata=consultant_custom,
@@ -7487,167 +7487,127 @@ with st.container(key="consultant_vibe_board"):
                     )
                 )
 
-                # Two compact tabs make the popup cleaner.
-                portfolio_tab, stage_tab = st.tabs(
-                    [
-                        "Lead Portfolio",
-                        "Stage Mix",
-                    ]
+                # Stage Mix first — same stacked layout as Partner Dossier.
+                st.markdown("**Stage Mix**")
+
+                stage_breakdown = (
+                    consultant_rows
+                    .groupby(
+                        "Stage",
+                        observed=True,
+                        dropna=False,
+                    )
+                    .agg(
+                        Leads=("Lead Number", "nunique"),
+                        Project_Value=("Project Value", "sum"),
+                    )
+                    .reset_index()
+                    .sort_values("Leads", ascending=False)
                 )
 
-                with portfolio_tab:
-                    popup_cols = [
-                        c
-                        for c in [
-                            "Lead Number",
-                            "Customer Name",
-                            "Vendor / CP Name",
-                            "Type",
-                            "Customer Region",
-                            "Vendor Region",
-                            "Stage",
-                            "Lead Sub Stage",
-                            "NBFC",
-                            "Lead Created At",
-                            "Disbursed At",
-                            "Project Value",
-                            "Dynamic Pricing",
-                            "Disbursed Value",
-                            "_Project Value Source",
-                        ]
-                        if c in consultant_rows.columns
+                if stage_breakdown.empty:
+                    st.info("No stage data is available.")
+                else:
+                    # Light, high-contrast palette — deliberately not one flat color.
+                    consultant_stage_palette = [
+                        "#A7DCCF",  # soft emerald
+                        "#BFD7EA",  # powder blue
+                        "#F3D6A2",  # soft amber
+                        "#CFC7E8",  # light lavender
+                        "#BFDCC4",  # sage
+                        "#E8C5B5",  # soft terracotta
+                        "#D7DEE8",  # cool slate
+                    ]
+                    consultant_stage_colors = [
+                        consultant_stage_palette[i % len(consultant_stage_palette)]
+                        for i in range(len(stage_breakdown))
                     ]
 
-                    consultant_view = (
-                        consultant_rows[
-                            popup_cols
-                        ]
-                        .copy()
+                    stage_fig = go.Figure(
+                        go.Bar(
+                            x=stage_breakdown["Stage"],
+                            y=stage_breakdown["Leads"],
+                            text=stage_breakdown["Leads"],
+                            textposition="outside",
+                            marker=dict(
+                                color=consultant_stage_colors,
+                                line=dict(color="rgba(255,255,255,.92)", width=1),
+                            ),
+                            hovertemplate=(
+                                "<b>%{x}</b><br>"
+                                "Leads: %{y:,.0f}"
+                                "<extra></extra>"
+                            ),
+                        )
                     )
-
-                    consultant_view = _excel_filter_table(
-                        consultant_view,
-                        key_prefix="consultant_" + consultant_key(selected_consultant_name),
-                        height=430,
+                    stage_fig.update_layout(
+                        height=230,
+                        margin=dict(l=10, r=10, t=14, b=48),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        showlegend=False,
+                        xaxis=dict(title=None, showgrid=False, tickfont=dict(size=9, color="#475569")),
+                        yaxis=dict(
+                            title=None,
+                            showgrid=True,
+                            gridcolor="rgba(148,163,184,.12)",
+                            zeroline=False,
+                            tickfont=dict(size=9, color="#64748B"),
+                        ),
                     )
-
-                    st.download_button(
-                        "Download Consultant Portfolio",
-                        data=consultant_view.to_csv(
-                            index=False
-                        ).encode(
-                            "utf-8-sig"
-                        ),
-                        file_name=(
-                            f"Consultant_"
-                            f"{consultant_key(selected_consultant_name)}"
-                            f"_Portfolio.csv"
-                        ),
-                        mime="text/csv",
+                    st.plotly_chart(
+                        stage_fig,
                         use_container_width=True,
-                        key=(
-                            "download_consultant_vibe_"
-                            + consultant_key(
-                                selected_consultant_name
-                            )
-                        ),
+                        config={"displayModeBar": False},
+                        key="consultant_stage_vibe_" + consultant_key(selected_consultant_name),
                     )
 
-                with stage_tab:
-                    stage_breakdown = (
-                        consultant_rows
-                        .groupby(
-                            "Stage",
-                            observed=True,
-                            dropna=False,
-                        )
-                        .agg(
-                            Leads=(
-                                "Lead Number",
-                                "nunique",
-                            ),
-                            Project_Value=(
-                                "Project Value",
-                                "sum",
-                            ),
-                        )
-                        .reset_index()
-                        .sort_values(
-                            "Leads",
-                            ascending=False,
-                        )
-                    )
+                # Lead Details directly below Stage Mix.
+                st.markdown("**Lead Details**")
 
-                    if stage_breakdown.empty:
-                        st.info(
-                            "No stage data is available."
-                        )
-                    else:
-                        stage_fig = go.Figure(
-                            go.Bar(
-                                x=stage_breakdown[
-                                    "Stage"
-                                ],
-                                y=stage_breakdown[
-                                    "Leads"
-                                ],
-                                text=stage_breakdown[
-                                    "Leads"
-                                ],
-                                textposition="outside",
-                                marker=dict(
-                                    color="#0F766E",
-                                ),
-                                hovertemplate=(
-                                    "<b>%{x}</b><br>"
-                                    "Leads: %{y:,.0f}"
-                                    "<extra></extra>"
-                                ),
-                            )
-                        )
+                popup_cols = [
+                    c
+                    for c in [
+                        "Lead Number",
+                        "Customer Name",
+                        "Vendor / CP Name",
+                        "Type",
+                        "Customer Region",
+                        "Vendor Region",
+                        "Stage",
+                        "Lead Sub Stage",
+                        "NBFC",
+                        "Lead Created At",
+                        "Disbursed At",
+                        "Project Value",
+                        "Dynamic Pricing",
+                        "Disbursed Value",
+                        "_Project Value Source",
+                    ]
+                    if c in consultant_rows.columns
+                ]
 
-                        stage_fig.update_layout(
-                            height=245,
-                            margin=dict(
-                                l=10,
-                                r=10,
-                                t=20,
-                                b=50,
-                            ),
-                            paper_bgcolor="rgba(0,0,0,0)",
-                            plot_bgcolor="rgba(0,0,0,0)",
-                            showlegend=False,
-                            xaxis=dict(
-                                title=None,
-                                showgrid=False,
-                                tickfont=dict(
-                                    size=9
-                                ),
-                            ),
-                            yaxis=dict(
-                                title=None,
-                                showgrid=True,
-                                gridcolor="rgba(148,163,184,.13)",
-                                zeroline=False,
-                                tickfont=dict(
-                                    size=9
-                                ),
-                            ),
-                        )
+                consultant_view = consultant_rows[popup_cols].copy()
+                consultant_view = _excel_filter_table(
+                    consultant_view,
+                    key_prefix="consultant_" + consultant_key(selected_consultant_name),
+                    height=390,
+                )
 
-                        st.plotly_chart(
-                            stage_fig,
-                            use_container_width=True,
-                            config={
-                                "displayModeBar": False,
-                            },
-                            key=(
-                                "consultant_stage_vibe_"
-                                + consultant_key(
-                                    selected_consultant_name
-                                )
-                            ),
-                        )
+                st.download_button(
+                    "Download Consultant Lead Details",
+                    data=consultant_view.to_csv(index=False).encode("utf-8-sig"),
+                    file_name=(
+                        f"Consultant_{consultant_key(selected_consultant_name)}"
+                        f"_Lead_Details.csv"
+                    ),
+                    mime="text/csv",
+                    use_container_width=True,
+                    key=(
+                        "download_consultant_vibe_"
+                        + consultant_key(selected_consultant_name)
+                    ),
+                )
 
             show_consultant_vibe_popup()
 
@@ -7932,7 +7892,7 @@ with st.container(key="partner_vibe_board"):
             x=display_partners["Vendor / CP Name"],
             y=display_partners["Leads"],
             width=.24, offset=-.13,
-            marker=dict(color="#CBD5E1", line=dict(color="white", width=1)),
+            marker=dict(color="#DCE6F0", line=dict(color="white", width=1)),
             text=[f"{int(v):,}" for v in display_partners["Leads"]],
             textposition="outside",
             textfont=dict(size=10, color="#475569"),
@@ -7954,10 +7914,10 @@ with st.container(key="partner_vibe_board"):
             x=display_partners["Vendor / CP Name"],
             y=display_partners["Projects"],
             width=.24, offset=.13,
-            marker=dict(color="#D97706", line=dict(color="white", width=1)),
+            marker=dict(color="#F3D6A2", line=dict(color="white", width=1)),
             text=display_partners["Project Bar Label"],
             textposition="outside",
-            textfont=dict(size=10, color="#B45309"),
+            textfont=dict(size=10, color="#8A5A13"),
             cliponaxis=False,
             customdata=custom,
             hovertemplate=(
@@ -8085,13 +8045,29 @@ with st.container(key="partner_vibe_board"):
                 if stages.empty:
                     st.info("No stage data is available.")
                 else:
+                    partner_stage_palette = [
+                        "#F3D6A2",  # soft amber
+                        "#A7DCCF",  # soft emerald
+                        "#BFD7EA",  # powder blue
+                        "#CFC7E8",  # light lavender
+                        "#BFDCC4",  # sage
+                        "#E8C5B5",  # soft terracotta
+                        "#D7DEE8",  # cool slate
+                    ]
+                    partner_stage_colors = [
+                        partner_stage_palette[i % len(partner_stage_palette)]
+                        for i in range(len(stages))
+                    ]
                     sf = go.Figure(
                         go.Bar(
                             x=stages["Stage"],
                             y=stages["Leads"],
                             text=stages["Leads"],
                             textposition="outside",
-                            marker=dict(color="#D97706"),
+                            marker=dict(
+                                color=partner_stage_colors,
+                                line=dict(color="rgba(255,255,255,.92)", width=1),
+                            ),
                             hovertemplate=(
                                 "<b>%{x}</b><br>"
                                 "Leads: %{y:,.0f}"
