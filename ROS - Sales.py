@@ -2810,8 +2810,14 @@ with st.sidebar:
 # Never render email/password input boxes in the application.
 if not secret_identifier or not secret_password:
     st.error(
-        "CRM connection is not configured. Add RENGY_IDENTIFIER and "
-        "RENGY_PASSWORD in Streamlit App Settings → Secrets, then reboot the app."
+        "CRM connection is not configured. Open Streamlit Cloud → "
+        "App Settings → Secrets and add the RENGY_IDENTIFIER and "
+        "RENGY_PASSWORD entries used by your Rengy login."
+    )
+    st.code(
+        'RENGY_IDENTIFIER = "your_rengy_login_email"\n'
+        'RENGY_PASSWORD = "your_rengy_login_password"',
+        language="toml",
     )
     st.stop()
 
@@ -7208,15 +7214,15 @@ with st.container(key="consultant_vibe_board"):
 
                 consultant_projects = (
                     consultant_rows.loc[
-                        consultant_rows["_is_project"]
-                        & consultant_rows["_period_project"]
+                        consultant_rows["_is_project"].astype(bool)
+                        & consultant_rows["_period_project"].eq(1)
                     ]
                     .copy()
                 )
 
                 lead_count = int(
                     consultant_rows.loc[
-                        consultant_rows["_period_lead"], "Lead Number"
+                        consultant_rows["_period_lead"].eq(1), "Lead Number"
                     ].nunique()
                 )
 
@@ -7916,7 +7922,7 @@ with st.container(key="partner_vibe_board"):
                     rows["_is_project"] & rows["_period_project"]
                 ].copy()
                 leads_n = int(
-                    rows.loc[rows["_period_lead"], "Lead Number"].nunique()
+                    rows.loc[rows["_period_lead"].eq(1), "Lead Number"].nunique()
                 )
                 projects_n = int(projects["Lead Number"].nunique())
                 pending_n = max(leads_n - projects_n, 0)
