@@ -2731,6 +2731,55 @@ st.markdown(
 )
 
 
+
+st.markdown(
+    """
+    <style>
+    /* FINAL EXECUTIVE PALETTE
+       Ink #0F172A | Navy #102A43 | Emerald #0F766E |
+       Amber #D97706 | Slate #64748B | Surface #F8FAFC */
+    .stApp {
+        background:#F8FAFC !important;
+    }
+
+    .chart-kicker, .side-kicker {
+        color:#0F766E !important;
+    }
+
+    .chart-title {
+        color:#102A43 !important;
+    }
+
+    .chart-note {
+        color:#64748B !important;
+    }
+
+    [class*="st-key-top_basic_filters"] {
+        background:#FFFFFF !important;
+        border:1px solid #E2E8F0 !important;
+        box-shadow:0 4px 14px rgba(15,23,42,.04) !important;
+    }
+
+    div[data-testid="stMetric"] {
+        background:#FFFFFF !important;
+        border:1px solid #E2E8F0 !important;
+        border-top:3px solid #0F766E !important;
+        box-shadow:0 4px 14px rgba(15,23,42,.04) !important;
+    }
+
+    div[data-testid="stMetricValue"] {
+        color:#102A43 !important;
+    }
+
+    div[data-testid="stDataFrame"] {
+        background:#FFFFFF !important;
+        border:1px solid #E2E8F0 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ============================================================
 # STREAMLIT LOGIN
 # ============================================================
@@ -2757,37 +2806,17 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-if secret_identifier and secret_password:
-    app_identifier = secret_identifier
-    app_password = secret_password
-else:
-    with st.sidebar:
-        st.caption("CRM LOGIN")
-        app_identifier = st.text_input(
-            "Rengy email / mobile",
-            key="crm_identifier",
-        )
-        app_password = st.text_input(
-            "Rengy password",
-            type="password",
-            key="crm_password",
-        )
+# Production dashboard: credentials come ONLY from Streamlit Secrets.
+# Never render email/password input boxes in the application.
+if not secret_identifier or not secret_password:
+    st.error(
+        "CRM connection is not configured. Add RENGY_IDENTIFIER and "
+        "RENGY_PASSWORD in Streamlit App Settings → Secrets, then reboot the app."
+    )
+    st.stop()
 
-        if not app_identifier or not app_password:
-            st.info("Enter your CRM login to load live data.")
-
-    if not app_identifier or not app_password:
-        st.markdown(
-            """
-            <div class="hero">
-                <div class="hero-badge">⚡ LIVE SALES INTELLIGENCE</div>
-                <h1>Rengy Sales Command Center</h1>
-                <p>Connect your Rengy CRM from the sidebar. The dashboard will then load CP, Vendor, lead and financial data.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.stop()
+app_identifier = secret_identifier
+app_password = secret_password
 
 
 # ============================================================
@@ -4753,60 +4782,81 @@ else:
         x_tick_size = 9
         popup_date_mode = "day"
 
-    rows = []
+    # FAST onboarding aggregation:
+    # one groupby replaces repeated DataFrame scans for every bucket/type.
+    compact_onboarding = chart_partners[
+        ["_bucket", "Type", "Name"]
+    ].copy()
 
-    for bucket in all_buckets:
-        bucket_ts = pd.Timestamp(bucket)
+    grouped_counts = (
+        compact_onboarding
+        .groupby(["_bucket", "Type"], observed=True, sort=False)
+        .size()
+        .rename("Count")
+    )
 
-        for ptype in ["CP", "Vendor"]:
-            cohort = chart_partners.loc[
-                (chart_partners["Type"] == ptype)
-                & (chart_partners["_bucket"] == bucket_ts)
-            ]
+    grouped_names = (
+        compact_onboarding
+        .dropna(subset=["Name"])
+        .assign(Name=lambda d: d["Name"].astype(str).str.strip())
+        .loc[lambda d: d["Name"].ne("")]
+        .groupby(["_bucket", "Type"], observed=True, sort=False)["Name"]
+        .agg(lambda s: sorted(set(s)))
+    )
 
-            names = sorted(
-                {
-                    str(x).strip()
-                    for x in cohort["Name"].dropna()
-                    if str(x).strip()
-                }
-            )
+    summary_index = pd.MultiIndex.from_product(
+        [pd.DatetimeIndex(all_buckets), ["CP", "Vendor"]],
+        names=["_bucket", "Type"],
+    )
 
-            if not names:
-                hover_names = "No onboarding"
-            elif len(names) <= 20:
-                hover_names = "<br>".join(names)
-            else:
-                hover_names = (
-                    "<br>".join(names[:20])
-                    + f"<br>+ {len(names) - 20} more"
-                )
+    onboarding_summary = (
+        grouped_counts
+        .reindex(summary_index, fill_value=0)
+        .reset_index()
+    )
 
-            if show_all_months:
-                label = bucket_ts.strftime("%b %Y")
-                bucket_id = bucket_ts.strftime("%Y-%m")
-            else:
-                label = bucket_ts.strftime("%d %b")
-                bucket_id = bucket_ts.strftime("%Y-%m-%d")
+    onboarding_summary["NamesList"] = [
+        grouped_names.get((bucket, ptype), [])
+        for bucket, ptype in zip(
+            onboarding_summary["_bucket"],
+            onboarding_summary["Type"],
+        )
+    ]
 
-            rows.append(
-                {
-                    "Bucket": bucket_ts,
-                    "Label": label,
-                    "BucketID": bucket_id,
-                    "Type": ptype,
-                    "Count": int(len(cohort)),
-                    "Names": hover_names,
-                }
-            )
+    def _compact_hover(names):
+        if not names:
+            return "No onboarding"
+        if len(names) <= 20:
+            return "<br>".join(names)
+        return "<br>".join(names[:20]) + f"<br>+ {len(names) - 20} more"
 
-    onboarding_summary = pd.DataFrame(rows)
+    onboarding_summary["Names"] = onboarding_summary["NamesList"].map(
+        _compact_hover
+    )
+
+    if show_all_months:
+        onboarding_summary["Label"] = (
+            onboarding_summary["_bucket"].dt.strftime("%b %Y")
+        )
+        onboarding_summary["BucketID"] = (
+            onboarding_summary["_bucket"].dt.strftime("%Y-%m")
+        )
+    else:
+        onboarding_summary["Label"] = (
+            onboarding_summary["_bucket"].dt.strftime("%d %b")
+        )
+        onboarding_summary["BucketID"] = (
+            onboarding_summary["_bucket"].dt.strftime("%Y-%m-%d")
+        )
+
+    onboarding_summary["Count"] = onboarding_summary["Count"].astype("int32")
+
 
     fig = go.Figure()
 
     for ptype, color in [
-        ("CP", "#06b6d4"),
-        ("Vendor", "#ec4899"),
+        ("CP", "#0F766E"),
+        ("Vendor", "#D97706"),
     ]:
         part = onboarding_summary.loc[
             onboarding_summary["Type"] == ptype
@@ -4850,12 +4900,12 @@ else:
         barmode="group",
         bargap=0.24,
         bargroupgap=0.07,
-        height=385,
+        height=365,
         margin=dict(
-            l=18,
-            r=18,
-            t=25,
-            b=30,
+            l=12,
+            r=12,
+            t=18,
+            b=24,
         ),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
